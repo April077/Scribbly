@@ -4,65 +4,71 @@ import { useDraw } from "../hooks/useDraw";
 import React, { useEffect, useState } from "react";
 import { CompactPicker } from "react-color";
 import { drawLine } from "../utils/draw";
-import { io } from "socket.io-client";
 import { useRecoilValue } from "recoil";
 import lineWidthState from "../state/lineWidth";
 import { Button } from "../components/ui/Button";
 
-const socket = io("http://localhost:3001");
-
-type DrawLineProps = {
-  currPt: Point;
-  prevPt: Point | null;
-  color: string;
-  lineWidth: number; // Ensure lineWidth is included
-};
+const ws = new WebSocket("ws://localhost:8080");
 
 function Home() {
   const { canvasRef, onMouseDown, clearCanvas } = useDraw(createLine);
   const [color, setColor] = useState<string>("#000");
-  const lineWidth = useRecoilValue(lineWidthState); // Get the current lineWidth from Recoil
-
+  const lineWidth = useRecoilValue(lineWidthState);
   useEffect(() => {
     const ctx = canvasRef.current?.getContext("2d");
     if (!ctx) return;
 
-    socket.emit("new-client");
-
-    socket.on("get-state", () => {
-      if (!canvasRef.current?.toDataURL()) return;
-      socket.emit("canvas-data", canvasRef.current?.toDataURL());
-    });
-
-    socket.on("data-from-server", (state: string) => {
-      const img = new Image();
-      img.src = state;
-      img.onload = () => {
-        ctx.drawImage(img, 0, 0);
-      };
-    });
-
-    socket.on("clear", () => {
-      clearCanvas();
-    });
-
-    // Receive line data from the server and draw it on the canvas
-    socket.on("draw-line", ({ prevPt, currPt, color, lineWidth }: DrawLineProps) => {
-      drawLine({ prevPt, currPt, ctx, color, lineWidth }); // Apply the received lineWidth
-    });
-
-    return () => {
-      socket.off("get-state");
-      socket.off("data-from-server");
-      socket.off("clear");
-      socket.off("draw-line");
+    ws.onopen = () => {
+      console.log("WebSocket connected");
+      ws.send(JSON.stringify({ type: "new-client" }));
     };
-  }, [canvasRef, clearCanvas]); // Include lineWidth if you want live changes to reflect
+
+    ws.onmessage = (event) => {
+      const data = JSON.parse(event.data);
+      switch (data.type) {
+        case "get-state":
+          if (!canvasRef.current?.toDataURL()) return;
+          ws.send(
+            JSON.stringify({
+              type: "canvas-data",
+              data: canvasRef.current?.toDataURL(),
+            })
+          );
+          break;
+
+        case "data-from-server":
+          const img = new Image();
+          img.src = data.data;
+          img.onload = () => {
+            ctx.drawImage(img, 0, 0);
+          };
+          break;
+
+        case "clear":
+          clearCanvas();
+          break;
+
+        case "draw-line":
+          const { prevPt, currPt, color, lineWidth } = data;
+          drawLine({ prevPt, currPt, ctx, color, lineWidth });
+          break;
+
+        default:
+          console.log("Unknown message type:", data.type);
+          break;
+      }
+    };
+
+    ws.onclose = (event) => {
+      console.log("WebSocket closed:", event);
+    };
+  }, [canvasRef, clearCanvas]);
 
   function createLine({ ctx, currPt, prevPt }: Draw) {
-    // Emit line data to the server including lineWidth
-    socket.emit("draw-line", { prevPt, currPt, color, lineWidth });
-    drawLine({ prevPt, currPt, ctx, color, lineWidth }); // Draw the line locally
+    ws.send(
+      JSON.stringify({ type: "draw-line", prevPt, currPt, color, lineWidth })
+    );
+    drawLine({ prevPt, currPt, ctx, color, lineWidth });
   }
 
   const handleDownload = () => {
@@ -94,7 +100,7 @@ function Home() {
           variant={"outline"}
           className="px-8"
           onClick={() => {
-            socket.emit("clear");
+            ws.send(JSON.stringify({ type: "clear" }));
           }}
         >
           Clear

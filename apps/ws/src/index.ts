@@ -1,46 +1,70 @@
-import express from "express";
+import { WebSocket, WebSocketServer } from "ws";
 
-const app = express();
-import http from "http";
-const server = http.createServer(app);
-
-import { Server } from "socket.io";
-
-const io = new Server(server, {
-  cors: {
-    origin: ["http://localhost:3000"],
-  },
-});
-
-type DrawLine = {
-  prevPt: Point | null;
-  currPt: Point;
-  color: string;
+type Point = {
+  x: number;
+  y: number;
 };
 
-type Point = { x: number; y: number };
+type DataType = {
+  type?: string;
+  prevPt?: Point;
+  currPt?: Point;
+  color?: string;
+  data?: any;
+};
 
+const wss = new WebSocketServer({ port: 8080 });
+// const clients = new Set<WebSocket>();
 
-io.on("connection", (socket) => {
-  console.log("connected");
+wss.on("connection", (ws) => {
+  console.log("client connected");
+  // clients.add(ws);
 
-  socket.on("draw-line", ({ prevPt, currPt, color }: DrawLine) => {
-    socket.broadcast.emit("draw-line", { prevPt, currPt, color });
+  ws.on("message", (data: string) => {
+    let message: DataType;
+    try {
+      message = JSON.parse(data);
+    } catch (error) {
+      console.error("Invalid JSON:", error);
+      return;
+    }
+    console.log(message)
+
+    switch (message.type) {
+      case "draw-line":
+        broadcast({
+          type: "draw-line",
+          prevPt: message.prevPt,
+          currPt: message.currPt,
+          color: message.color,
+        });
+        break;
+
+      case "new-client":
+        broadcast({ type: "get-state" });
+        break;
+
+      case "canvas-data":
+        broadcast({ type: "data-from-server", data: message.data });
+        break;
+
+      case "clear":
+        broadcast({ type: "clear" });
+        break;
+
+      default:
+        console.log("Unknown message type:", message.type);
+    }
   });
 
-  socket.on("new-client", () => {
-    socket.broadcast.emit("get-state");
+  function broadcast(message: DataType) {
+    wss.clients.forEach((client: WebSocket) => {
+      if (client.readyState === WebSocket.OPEN) {
+        client.send(JSON.stringify(message));
+      }
+    });
+  }
+  ws.on("close", () => {
+    console.log("Client disconnected");
   });
-
-  socket.on("canvas-data", (data) => {
-    socket.broadcast.emit("data-from-server", data);
-  });
-
-  socket.on("clear", () => {
-    io.emit("clear");
-  });
-});
-
-server.listen(3001, () => {
-  console.log("listening on *:3001");
 });
