@@ -1,6 +1,7 @@
-import  express from "express";
+import express from "express";
+
 const app = express();
-import http from "http"
+import http from "http";
 const server = http.createServer(app);
 
 import { Server } from "socket.io";
@@ -18,6 +19,7 @@ type DrawLine = {
 };
 
 type Point = { x: number; y: number };
+
 
 io.on("connection", (socket) => {
   console.log("connected");

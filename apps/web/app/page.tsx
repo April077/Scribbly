@@ -2,10 +2,12 @@
 
 import { useDraw } from "../hooks/useDraw";
 import React, { useEffect, useState } from "react";
-import { ChromePicker } from "react-color";
-import { Button } from "../components/ui/Button";
+import { CompactPicker } from "react-color";
 import { drawLine } from "../utils/draw";
 import { io } from "socket.io-client";
+import { useRecoilValue } from "recoil";
+import lineWidthState from "../state/lineWidth";
+import { Button } from "../components/ui/Button";
 
 const socket = io("http://localhost:3001");
 
@@ -13,11 +15,13 @@ type DrawLineProps = {
   currPt: Point;
   prevPt: Point | null;
   color: string;
+  lineWidth: number; // Ensure lineWidth is included
 };
 
 function Home() {
-  const { canvasRef, onMouseDown, clearCanvas } = useDraw(creatLine);
+  const { canvasRef, onMouseDown, clearCanvas } = useDraw(createLine);
   const [color, setColor] = useState<string>("#000");
+  const lineWidth = useRecoilValue(lineWidthState); // Get the current lineWidth from Recoil
 
   useEffect(() => {
     const ctx = canvasRef.current?.getContext("2d");
@@ -42,8 +46,9 @@ function Home() {
       clearCanvas();
     });
 
-    socket.on("draw-line", ({ prevPt, currPt, color }: DrawLineProps) => {
-      drawLine({ prevPt, currPt, ctx, color });
+    // Receive line data from the server and draw it on the canvas
+    socket.on("draw-line", ({ prevPt, currPt, color, lineWidth }: DrawLineProps) => {
+      drawLine({ prevPt, currPt, ctx, color, lineWidth }); // Apply the received lineWidth
     });
 
     return () => {
@@ -52,11 +57,12 @@ function Home() {
       socket.off("clear");
       socket.off("draw-line");
     };
-  }, [canvasRef]);
+  }, [canvasRef, clearCanvas]); // Include lineWidth if you want live changes to reflect
 
-  function creatLine({ ctx, currPt, prevPt }: Draw) {
-    socket.emit("draw-line", { prevPt, currPt, color });
-    drawLine({ prevPt, currPt, ctx, color });
+  function createLine({ ctx, currPt, prevPt }: Draw) {
+    // Emit line data to the server including lineWidth
+    socket.emit("draw-line", { prevPt, currPt, color, lineWidth });
+    drawLine({ prevPt, currPt, ctx, color, lineWidth }); // Draw the line locally
   }
 
   const handleDownload = () => {
@@ -73,34 +79,30 @@ function Home() {
   };
 
   return (
-    <div className="p-5 flex justify-center items-center gap-5 bg-white  w-screen h-screen">
+    <div className="p-5 flex justify-center items-center gap-5 bg-white w-screen h-screen">
+      <canvas
+        onMouseDown={onMouseDown}
+        ref={canvasRef}
+        width={1000}
+        height={500}
+        className="border-[1px] rounded-md border-black"
+      />
       <div className="flex justify-center flex-col space-y-5 items-center">
-        <ChromePicker
-          disableAlpha={true}
-          color={color}
-          onChange={(e) => setColor(e.hex)}
-        />
+        <CompactPicker color={color} onChange={(e) => setColor(e.hex)} />
         <Button
-          size={"lg"}
+          size={"sm"}
           variant={"outline"}
+          className="px-8"
           onClick={() => {
             socket.emit("clear");
           }}
         >
           Clear
         </Button>
-        <Button size={"lg"} variant={"outline"} onClick={handleDownload}>
+        <Button size={"sm"} variant={"outline"} onClick={handleDownload}>
           Download
         </Button>
       </div>
-
-      <canvas
-        onMouseDown={onMouseDown}
-        ref={canvasRef}
-        width={500}
-        height={500}
-        className="border-[1px] rounded-md border-black"
-      />
     </div>
   );
 }
